@@ -12,12 +12,16 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <iostream>
+#include <pthread.h>
 
 //#include "skiplist2.h"
 #include "skiplist.h"
 
 using namespace std;
 
+void *init_thread(void *param){
+	return NULL ;
+}
 int main(int argc, char* argv[])
 {
     int count=0;
@@ -35,7 +39,15 @@ int main(int argc, char* argv[])
 	// 첫번째 인자: 입력 파일, 두번째 인자: 스레드 수
 
     clock_gettime( CLOCK_REALTIME, &start);
-    // load input file
+    
+	// create Threads
+	pthread_t tid[num_threads]; // array of thread IDs
+	int err;
+	for( int i=0;i<num_threads;i++)
+		err = pthread_create(&tid[i], NULL, init_thread, NULL);
+	cout<<"Threads Created"<<endl;
+	
+	// load input file
     FILE* fin = fopen(fn, "r");
     char action;
     long num;
