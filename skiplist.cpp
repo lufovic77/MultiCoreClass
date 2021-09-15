@@ -13,8 +13,8 @@
 #include <unistd.h>
 #include <iostream>
 
-#include "skiplist2.h"
-//#include "skiplist.h"
+//#include "skiplist2.h"
+#include "skiplist.h"
 
 using namespace std;
 
@@ -24,16 +24,17 @@ int main(int argc, char* argv[])
     struct timespec start, stop;
 
     skiplist<int, int> list(0,1000000);
-
-    // check and parse command line options
-    if (argc != 2) {
-        printf("Usage: %s <infile>\n", argv[0]);
+    
+	// check and parse command line options
+    if (argc < 3) {
+        printf("Usage: %s <infile> <number_of_threads>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
     char *fn = argv[1];
+	int num_threads= *argv[2] - '0';
+	// 첫번째 인자: 입력 파일, 두번째 인자: 스레드 수
 
     clock_gettime( CLOCK_REALTIME, &start);
-
     // load input file
     FILE* fin = fopen(fn, "r");
     char action;
