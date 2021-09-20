@@ -13,21 +13,87 @@
 #include <unistd.h>
 #include <iostream>
 #include <pthread.h>
+#include <queue>
+#include <vector>
 
 //#include "skiplist2.h"
 #include "skiplist.h"
 
 using namespace std;
 
-void *init_thread(void *param){
-	return NULL ;
+pthread_mutex_t thread_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t queue_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t thread_cond = PTHREAD_COND_INITIALIZER;
+
+pthread_cond_t async_cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t mutex_lock= PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t async_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// task queue
+queue <pair<char, int> > task_queue;
+// skiplist
+skiplist<int, int> list(0,1000000);
+
+class ThreadPool{
+    private:
+        int num_threads;
+        vector <pthread_t> tid; // array of threads
+    public:
+        ThreadPool(int number){
+            num_threads = number;
+            tid.reserve (number);
+        }
+        void threadCreate(int index){
+            if ( pthread_create(&tid[index], NULL, workerThread, NULL) < 0){
+                perror("thread Create error : ");
+                exit(0);
+            }
+        }
+        static void *workerThread(void* param);
+        
+};
+
+void* ThreadPool::workerThread(void* parma){
+    pair<char, int > task;
+    while(1){
+        pthread_mutex_lock(&thread_mutex);
+        pthread_cond_wait(&thread_cond, &thread_mutex);
+        if(task_queue.empty()){ // if task queue is empty
+            pthread_mutex_lock(&thread_mutex);
+            pthread_cond_wait(&thread_cond, &thread_mutex);
+        }
+        else{
+            pthread_mutex_lock(&queue_lock);
+            task = task_queue.front();
+            char action = task.first;
+            int num = task.second;
+            task_queue.pop();
+            pthread_mutex_unlock(&queue_lock);
+            if (action == 'i') {            // insert
+                list.insert(num,num);
+            }
+            else if (action == 'q') {      // qeury
+                if(list.find(num)!=num)
+		            cout << "ERROR: Not Found: " << num << endl;
+            } 
+            else if (action == 'w') {     // wait
+                usleep(num);
+            }
+            else {
+                printf("ERROR: Unrecognized action: '%c'\n", action);
+                exit(EXIT_FAILURE);
+            }
+
+        }
+    }
+    return NULL;
 }
+
 int main(int argc, char* argv[])
 {
     int count=0;
     struct timespec start, stop;
 
-    skiplist<int, int> list(0,1000000);
     
 	// check and parse command line options
     if (argc < 3) {
@@ -41,31 +107,40 @@ int main(int argc, char* argv[])
     clock_gettime( CLOCK_REALTIME, &start);
     
 	// create Threads
-	pthread_t tid[num_threads]; // array of thread IDs
-	int err;
-	for( int i=0;i<num_threads;i++)
-		err = pthread_create(&tid[i], NULL, init_thread, NULL);
-	cout<<"Threads Created"<<endl;
-	
+	// 스레드풀 만들고, 완전히 초기화 될때까지 기다리기. 처음에는 스레드들이 idle하다
+    ThreadPool threadPool(num_threads);
+    for (int i = 0; i < num_threads; i++){
+        threadPool.threadCreate(i);
+    }
+    cout<<"Threads Created"<<endl;
+
+
 	// load input file
     FILE* fin = fopen(fn, "r");
     char action;
     long num;
+
     while (fscanf(fin, "%c %ld\n", &action, &num) > 0) {
-        if (action == 'i') {            // insert
-            list.insert(num,num);
-        }else if (action == 'q') {      // qeury
-            if(list.find(num)!=num)
-		cout << "ERROR: Not Found: " << num << endl;
-        } else if (action == 'w') {     // wait
-            usleep(num);
-        } else if (action == 'p') {     // wait
-	    cout << list.printList() << endl;
-        } else {
+        if (action == 'p') {     // wait
+	        cout << list.printList() << endl;
+        } 
+        else if ( action == 'i' || action == 'q' || action == 'w'){
+            // task queue에 넣고, idle 워커를 깨워 할당하기
+            // task queue를 관리함에 있어 lock을 걸어야 할까 ..?
+            pthread_mutex_lock(&queue_lock);
+            task_queue.push(make_pair(action, num));
+            pthread_mutex_unlock(&queue_lock);
+            // 백그라운드 스레드 하나 깨우기
+            pthread_cond_signal(&thread_cond);
+        }
+        
+        else {
             printf("ERROR: Unrecognized action: '%c'\n", action);
             exit(EXIT_FAILURE);
         }
 	count++;
+
+
     }
     fclose(fin);
     clock_gettime( CLOCK_REALTIME, &stop);
