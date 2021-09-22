@@ -25,15 +25,11 @@ pthread_mutex_t thread_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t queue_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t thread_cond = PTHREAD_COND_INITIALIZER;
 
-pthread_cond_t create_cond = PTHREAD_COND_INITIALIZER;
-pthread_mutex_t create_lock= PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t create_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_barrier_t barrier;
 
 pthread_cond_t main_cond = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t main_lock= PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t main_mutex = PTHREAD_MUTEX_INITIALIZER;
-
 
 pthread_cond_t skip_cond = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t skip_lock= PTHREAD_MUTEX_INITIALIZER;
@@ -42,13 +38,12 @@ pthread_mutex_t skip_mutex = PTHREAD_MUTEX_INITIALIZER;
 queue <pair<char, int> > task_queue;
 // skiplist
 skiplist<int, int> list(0,1000000);
+int init = 0;
 
 void* workerThread(void* index){
     pair<char, int> task;
-    int idx = (int)(*(int*)index);
-    pthread_mutex_lock(&create_mutex);
-    pthread_cond_signal(&create_cond);
-    pthread_mutex_unlock(&create_mutex);
+    int idx = (int)(*(int*)index); 
+
     while(1){
         // pthread_mutex_lock(&thread_mutex);
         // pthread_cond_wait(&thread_cond, &thread_mutex);
@@ -59,13 +54,11 @@ void* workerThread(void* index){
         pthread_mutex_unlock(&queue_lock);
 
         if(size==0){ // if task queue is empty
-            cout<<"t:"<<idx<<" empty"<<endl;
-
+           // cout<<"t:"<<idx<<" empty"<<endl;
+            
             pthread_barrier_wait(&barrier);
-
-            pthread_mutex_lock(&main_mutex);
+            
             pthread_cond_signal(&main_cond);
-            pthread_mutex_unlock(&main_mutex);
 
             pthread_mutex_lock(&thread_mutex);
             pthread_cond_wait(&thread_cond, &thread_mutex);
@@ -79,8 +72,6 @@ void* workerThread(void* index){
             pthread_mutex_unlock(&queue_lock);
             char action = task.first;
             int num = task.second;
-           // cout<<"thread:"<<idx<<" a:"<<action<<" n:"<<num<<" remain:"<<size<<endl;
-
             // 일단은 global lock
             pthread_mutex_lock(&skip_lock);
             if (action == 'i') {            // insert
@@ -123,20 +114,17 @@ int main(int argc, char* argv[])
 	// create Threads
 	// 스레드풀 만들고, 완전히 초기화 될때까지 기다리기. 처음에는 스레드들이 idle하다
     vector <pthread_t> tid; // array of threads
-    tid.reserve (num_threads);
+    tid.reserve (num_threads+1);
     // barrier
     pthread_barrier_init(&barrier, NULL, num_threads);
 
     for (int i = 0; i < num_threads; i++){
         int *idx =  (int*)malloc(sizeof(int)*4);
         *idx = i;
-        pthread_mutex_lock(&create_mutex);
             if ( pthread_create(&tid[i], NULL, workerThread, (void*)(idx)) < 0){
                 perror("thread Create error : ");
                 exit(0);
             }
-        pthread_cond_wait(&create_cond, &create_mutex); 
-        pthread_mutex_unlock(&create_mutex);
     }
     // 초기화 끝날때까지 기다리기
     pthread_mutex_lock(&main_mutex);
@@ -152,12 +140,12 @@ int main(int argc, char* argv[])
 
     while (fscanf(fin, "%c %ld\n", &action, &num) > 0) {
         if (action == 'p') {     // wait
+            pthread_cond_broadcast(&thread_cond);
             pthread_mutex_lock(&main_mutex);
             pthread_cond_wait(&main_cond, &main_mutex);
             pthread_mutex_unlock(&main_mutex);
-
         
-            cout<<"wait end"<<endl;
+           // cout<<"wait end"<<endl;
 	        cout << list.printList() << endl;
         } 
         else if ( action == 'i' || action == 'q' || action == 'w'){
@@ -168,9 +156,7 @@ int main(int argc, char* argv[])
             task_queue.push(make_pair(action, num));
             pthread_mutex_unlock(&queue_lock);
             // 백그라운드 스레드 하나 깨우기
-            pthread_mutex_lock(&thread_mutex);
             pthread_cond_signal(&thread_cond);
-            pthread_mutex_unlock(&thread_mutex);
         }
         else {
             printf("main thread ERROR: Unrecognized action: '%c'\n", action);
@@ -179,22 +165,19 @@ int main(int argc, char* argv[])
 	    count++;
     }
     fclose(fin);
+    clock_gettime( CLOCK_REALTIME, &stop);
+
+    // clean up
     while(1){  
         pthread_mutex_lock(&queue_lock);
         int size = task_queue.size();
         pthread_mutex_unlock(&queue_lock);
         if(size<=0){
-            pthread_mutex_lock(&thread_mutex);
             pthread_cond_broadcast(&thread_cond);
-            pthread_mutex_unlock(&thread_mutex);
             break;
         }
     }
-    // clean up
     pthread_barrier_destroy(&barrier);
-
-    clock_gettime( CLOCK_REALTIME, &stop);
-
     // print results
     double elapsed_time = (stop.tv_sec - start.tv_sec) + ((double) (stop.tv_nsec - start.tv_nsec))/BILLION ;
 
