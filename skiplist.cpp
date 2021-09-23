@@ -17,12 +17,13 @@
 #include <vector>
 #include <cstring>
 
-#include "skiplist2.h"
-//#include "skiplist.h"
+// #include "skiplist2.h"
+#include "skiplist.h"
 
 using namespace std;
 pthread_mutex_t queue_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t thread_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t finish_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t thread_cond = PTHREAD_COND_INITIALIZER;
 
 pthread_barrier_t barrier;
@@ -42,22 +43,12 @@ void* workerThread(void* index){
     int idx = (int)(*(int*)index); 
 
     while(1){
-        if (finished) // 모든 과정이 끝나면 
-           return NULL;
 
         pthread_mutex_lock(&queue_lock);
         int size = task_queue.size();
         pthread_mutex_unlock(&queue_lock);
-        if(size==0){ // if task queue is empty
-            pthread_barrier_wait(&barrier);
-    
-            pthread_cond_signal(&main_cond);
-
-            pthread_mutex_lock(&thread_mutex);
-            pthread_cond_wait(&thread_cond, &thread_mutex);
-            pthread_mutex_unlock(&thread_mutex);
-        }
-        else{
+        
+        if (size >0){
             pthread_mutex_lock(&queue_lock);
             task = task_queue.front();
             task_queue.pop();
@@ -81,6 +72,20 @@ void* workerThread(void* index){
                 exit(EXIT_FAILURE);
             }
             pthread_mutex_unlock(&skip_lock);
+        }
+        else if(size<=0){ // if task queue is empty
+
+            if (finished){ // 모든 과정이 끝나면 
+                return NULL;
+            }   
+
+            pthread_barrier_wait(&barrier);
+    
+            pthread_cond_signal(&main_cond);
+
+            pthread_mutex_lock(&thread_mutex);
+            pthread_cond_wait(&thread_cond, &thread_mutex);
+            pthread_mutex_unlock(&thread_mutex);
         }
     }
     return NULL;
@@ -153,27 +158,18 @@ int main(int argc, char* argv[])
     fclose(fin);
     clock_gettime(CLOCK_REALTIME, &stop);
     // clean up
-    while(1){  
-        pthread_mutex_lock(&queue_lock);
-        int size = task_queue.size();
-        pthread_mutex_unlock(&queue_lock);
-        if(size<=0){ //when queue is empty
-            //wait for the worker threads to finish
-            finished = true;
-            pthread_cond_broadcast(&thread_cond);
-            for(int i=0;i<num_threads;i++)
-                pthread_join(tid[i], NULL);
-            break;
-        }
-    }
-    pthread_barrier_destroy(&barrier);
-    pthread_mutex_destroy(&queue_lock);
-    pthread_mutex_destroy(&thread_mutex);
-    pthread_mutex_destroy(&main_mutex);
-    pthread_mutex_destroy(&skip_lock);
-    pthread_cond_destroy(&thread_cond);
-    pthread_cond_destroy(&main_cond);
-    pthread_cond_destroy(&skip_cond);
+    finished = true;
+    pthread_cond_broadcast(&thread_cond);
+    for(int i=0;i<num_threads;i++)
+        pthread_join(tid[i], NULL);
+    // pthread_barrier_destroy(&barrier);
+    // pthread_mutex_destroy(&queue_lock);
+    // pthread_mutex_destroy(&thread_mutex);
+    // pthread_mutex_destroy(&main_mutex);
+    // pthread_mutex_destroy(&skip_lock);
+    // pthread_cond_destroy(&thread_cond);
+    // pthread_cond_destroy(&main_cond);
+    // pthread_cond_destroy(&skip_cond);
     double elapsed_time = (stop.tv_sec - start.tv_sec) + ((double) (stop.tv_nsec - start.tv_nsec))/BILLION ;
 
     cout << "Elapsed time: " << elapsed_time << " sec" << endl;
