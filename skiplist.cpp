@@ -24,6 +24,7 @@ using namespace std;
 pthread_mutex_t queue_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t thread_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t finish_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t working_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t thread_cond = PTHREAD_COND_INITIALIZER;
 
 pthread_barrier_t barrier;
@@ -33,9 +34,10 @@ pthread_mutex_t main_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 pthread_cond_t skip_cond = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t skip_lock= PTHREAD_MUTEX_INITIALIZER;
-// task queue
-queue <pair<char, int> > task_queue;
+// task queue (queue in queue)
+queue <queue<pair<char, int> >> task_queue;
 // skiplist
+unsigned int working = 0;
 skiplist<int, int> list(0,1000000);
 bool finished = false;
 void* workerThread(void* index){
@@ -46,35 +48,41 @@ void* workerThread(void* index){
 
         pthread_mutex_lock(&queue_lock);
         int size = task_queue.size();
-        pthread_mutex_unlock(&queue_lock);
-        
+        working | (1 << idx) ? 1 : 0;
         if (size >0){
-            pthread_mutex_lock(&queue_lock);
-            task = task_queue.front();
+            queue <pair<char, int> > tmp_q;
+            tmp_q = task_queue.front();
             task_queue.pop();
             pthread_mutex_unlock(&queue_lock);
-            char action = task.first;
-            int num = task.second;
-            // 일단은 global lock
-            pthread_mutex_lock(&skip_lock);
-            if (action == 'i') {            // insert
-                list.insert(num,num);
+            while(!tmp_q.empty()){
+                task = tmp_q.front();
+                tmp_q.pop();
+                char action = task.first;
+                int num = task.second;
+          //  fprintf(stderr, "%d, %c, %d\n", idx, action, num);
+                // 일단은 global lock
+                pthread_mutex_lock(&skip_lock);
+
+                if (action == 'i') {            // insert
+                    list.insert(num,num);
+                }
+                else if (action == 'q') {      // qeury
+                    if(list.find(num)!=num)
+                        cout << "ERROR: Not Found: " << num << endl;
+                } 
+                else if (action == 'w') {     // wait
+                    usleep(num);
+                }
+                else {
+                    printf("worker thread ERROR: Unrecognized action: '%c'\n", action);
+                    exit(EXIT_FAILURE);
+                }
+                pthread_mutex_unlock(&skip_lock);
             }
-            else if (action == 'q') {      // qeury
-                if(list.find(num)!=num)
-		            cout << "ERROR: Not Found: " << num << endl;
-            } 
-            else if (action == 'w') {     // wait
-                usleep(num);
-            }
-            else {
-                printf("worker thread ERROR: Unrecognized action: '%c'\n", action);
-                exit(EXIT_FAILURE);
-            }
-            pthread_mutex_unlock(&skip_lock);
         }
         else if(size<=0){ // if task queue is empty
-
+            pthread_mutex_unlock(&queue_lock);
+            working | ~(1 << idx) ? 1 : 0;
             if (finished){ // 모든 과정이 끝나면 
                 return NULL;
             }   
@@ -132,9 +140,16 @@ int main(int argc, char* argv[])
     FILE* fin = fopen(fn, "r");
     char action;
     long num;
-
+    int batch_size = 3;
+    queue <pair<char, int> > tmp_q;
     while (fscanf(fin, "%c %ld\n", &action, &num) > 0) {
         if (action == 'p') {     // wait
+            if(!tmp_q.empty()){
+                task_queue.push(tmp_q);
+                count = 0;
+                while(!tmp_q.empty())
+                    tmp_q.pop();
+            }
             pthread_cond_broadcast(&thread_cond);
             pthread_mutex_lock(&main_mutex);
             pthread_cond_wait(&main_cond, &main_mutex);
@@ -143,11 +158,20 @@ int main(int argc, char* argv[])
         } 
         else if ( action == 'i' || action == 'q' || action == 'w'){
             // task queue에 넣고, idle 워커를 깨워 할당하기
-            pthread_mutex_lock(&queue_lock);
-            task_queue.push(make_pair(action, num));
-            pthread_mutex_unlock(&queue_lock);
-            // 백그라운드 스레드 하나 깨우기
-            pthread_cond_signal(&thread_cond);
+            if(count == batch_size){
+                tmp_q.push(make_pair(action, num));
+                count = 0;
+                pthread_mutex_lock(&queue_lock);
+                task_queue.push(tmp_q);
+                pthread_mutex_unlock(&queue_lock);
+                while(!tmp_q.empty())
+                tmp_q.pop();
+                // 백그라운드 스레드 하나 깨우기
+                pthread_cond_signal(&thread_cond);
+            }
+            else{
+                tmp_q.push(make_pair(action, num));
+            }
         }
         else {
             printf("main thread ERROR: Unrecognized action: '%c'\n", action);
@@ -155,21 +179,24 @@ int main(int argc, char* argv[])
         }
 	    count++;
     }
+
+    if(!tmp_q.empty()){
+        pthread_mutex_lock(&queue_lock);
+            task_queue.push(tmp_q);
+        pthread_mutex_unlock(&queue_lock);
+    }
     fclose(fin);
-    clock_gettime(CLOCK_REALTIME, &stop);
     // clean up
+    while(1){
+        fprintf(stderr, "%d", working);
+        if(working==0)
+        break;
+    }
     finished = true;
     pthread_cond_broadcast(&thread_cond);
     for(int i=0;i<num_threads;i++)
         pthread_join(tid[i], NULL);
-    // pthread_barrier_destroy(&barrier);
-    // pthread_mutex_destroy(&queue_lock);
-    // pthread_mutex_destroy(&thread_mutex);
-    // pthread_mutex_destroy(&main_mutex);
-    // pthread_mutex_destroy(&skip_lock);
-    // pthread_cond_destroy(&thread_cond);
-    // pthread_cond_destroy(&main_cond);
-    // pthread_cond_destroy(&skip_cond);
+    clock_gettime(CLOCK_REALTIME, &stop);
     double elapsed_time = (stop.tv_sec - start.tv_sec) + ((double) (stop.tv_nsec - start.tv_nsec))/BILLION ;
 
     cout << "Elapsed time: " << elapsed_time << " sec" << endl;
