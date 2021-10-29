@@ -3,7 +3,6 @@
 #include<string.h>
 #include <algorithm>
 #include <string>
-#include <vector>
 
 using namespace std;
 
@@ -41,9 +40,8 @@ int main(int argc, char* argv[])
 	    return 0;
     }
 
-    //auto strArr = new char[N][30];
+    auto strArr = new char[N][30];
     //string strArr[N];
-    vector<string> strArr[N];
 
     for(i=0; i<N; i++)
         inputfile>>strArr[i];
@@ -66,15 +64,14 @@ int main(int argc, char* argv[])
     } // bubble sort
 */
     //string outputArr[N];
-    //auto outputArr = new char [N][30];
-    vector<string> outputArr[N];
-    fprintf(stderr, "segfaultDetector");
+    auto outputArr = new char [N][30];
     for (int decimal = 29; decimal>=0; decimal--){
         int histogram[59] = {0};
 
         for (i = 0; i < N; i++){
             int idx;
-            int len = strArr[i].length();
+            //int len = strArr[i].length();
+            int len = strlen(strArr[i]);
             if(decimal < len){ 
                 idx = strArr[i][decimal]-'A'+1;
                 histogram[idx]++;
@@ -87,20 +84,23 @@ int main(int argc, char* argv[])
     
         // Build the output array
         for (i = N - 1; i >= 0; i--) {
-            int len = strArr[i].length();
+            //int len = strArr[i].length();
+            int len = strlen(strArr[i]);
             int idx;
             if(decimal < len)
                 idx = strArr[i][decimal]-'A'+1;
             else
                 idx = 0;
-            outputArr[histogram[idx]-1] = strArr[i];
+            //outputArr[histogram[idx]-1] = strArr[i];
+            strncpy(outputArr[histogram[idx]-1], strArr[i], 30);
             histogram[idx]--;
         }
         //ATd`RkRX
         //MbWnGUAU
         //jU^Kkpuj_X
         for (i = 0; i < N; i++)
-            strArr[i] = outputArr[i];
+            strncpy(strArr[i],outputArr[i],  30);
+            //strArr[i] = outputArr[i];
     }
 
     cout<<"\nStrings (Names) in Alphabetical order from position " << pos << ": " << endl;
