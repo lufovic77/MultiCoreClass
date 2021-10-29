@@ -1,8 +1,8 @@
 #include <iostream>
 #include <sstream>
+#include <mutex>
 
 #define BILLION  1000000000L
-#define NPAIRS  44
 
 using namespace std;
  
@@ -15,61 +15,29 @@ public:
         for ( int i=1; i<=MAXLEVEL; i++ ) {
             forwards[i] = NULL;
         }
-	cnt = 0;
     }
  
-    skiplist_node(K searchKey)
+    skiplist_node(K searchKey):key(searchKey)
     {
         for ( int i=1; i<=MAXLEVEL; i++ ) {
             forwards[i] = NULL;
         }
-	key[0] = searchKey;
-	cnt = 1;
     }
  
-    skiplist_node(K searchKey,V val)
+    skiplist_node(K searchKey,V val):key(searchKey),value(val)
     {
         for ( int i=1; i<=MAXLEVEL; i++ ) {
             forwards[i] = NULL;
         }
-	key[0] = searchKey;
-	value[0] = val;
-	cnt = 1;
     }
  
     virtual ~skiplist_node()
     {
     }
-
-    void insert(K k, V v)
-    {
-	for(int i=0;i<cnt;i++){
-	        if( key[i] < k) 
-		    continue;
-
-		// shift to right
-		for(int j=cnt-1;j>=i;j--){
-	            key[j+1] = key[j] ;
-	            value[j+1] = value[j] ;
-		}
-		// insert to the right position
-	        key[i] = k;
-	        value[i] = v;
-		cnt++;
-		return;
-	}
-	key[cnt] = k;
-	value[cnt] = v;
-	cnt++;
-	return;
-    }
  
-    int cnt;
-    // change KV to array of structure later
-    K key[NPAIRS];   // 4*44   --> 176
-    V value[NPAIRS];   // 4*44   --> 176
-    skiplist_node<K,V,MAXLEVEL>* forwards[MAXLEVEL+1];   // 8*17 = 156 bytes --> 128 + 28 bytes 
-    // total 352 + 128 + 28 + 4 -->  512 bytes --> 8 cachelines
+    K key;
+    V value;
+    skiplist_node<K,V,MAXLEVEL>* forwards[MAXLEVEL+1];
 };
  
 ///////////////////////////////////////////////////////////////////////////////
@@ -107,54 +75,39 @@ public:
  
     void insert(K searchKey,V newValue)
     {
+        list_lock.lock();
         skiplist_node<K,V,MAXLEVEL>* update[MAXLEVEL];
         NodeType* currNode = m_pHeader;
         for(int level=max_curr_level; level >=1; level--) {
-            while ( currNode->forwards[level]->key[0] <= searchKey ) {
+            while ( currNode->forwards[level]->key < searchKey ) {
                 currNode = currNode->forwards[level];
             }
             update[level] = currNode;
         }
+        currNode = currNode->forwards[1];
 
-        //currNode = currNode->forwards[1];
-
-	if( currNode->cnt < NPAIRS){
-	    //  insert
-	    currNode->insert(searchKey, newValue);
-	}
-	else { // split
-	    int newlevel = randomLevel();
-	    if ( newlevel > max_curr_level ) {
-		for ( int level = max_curr_level+1; level <= newlevel; level++ ) {
-			update[level] = m_pHeader;
-		}
-		max_curr_level = newlevel;
-	    }
-
-       	    //currNode = new NodeType(searchKey,newValue);
-	    NodeType* newNode = new NodeType();
-	    int mid=currNode->cnt/2; 
-	    for (int i=mid; i<currNode->cnt; i++){
-	        newNode->insert(currNode->key[i], currNode->value[i]);
-	    }
-	    currNode->cnt = mid;
-	    if(newNode->key[0] < searchKey){
-	        newNode->insert(searchKey, newValue);
-	    }
-	    else{
-	        currNode->insert(searchKey, newValue);
-	    }
-
-	    for ( int lv=1; lv<=max_curr_level; lv++ ) {
-		newNode->forwards[lv] = update[lv]->forwards[lv];
-		update[lv]->forwards[lv] = newNode; // make previous node point to new node
-	    }
-	}
+        if ( currNode->key == searchKey ) {
+            currNode->value = newValue;
+        }
+        else {
+            int newlevel = randomLevel();
+            if ( newlevel > max_curr_level ) {
+                for ( int level = max_curr_level+1; level <= newlevel; level++ ) {
+                    update[level] = m_pHeader;
+                }
+                max_curr_level = newlevel;
+            }
+            currNode = new NodeType(searchKey,newValue);
+            for ( int lv=1; lv<=max_curr_level; lv++ ) {
+                currNode->forwards[lv] = update[lv]->forwards[lv];
+                update[lv]->forwards[lv] = currNode;
+            }
+        }
+        list_lock.unlock();
     }
  
     void erase(K searchKey)
     {
-	    /*
         skiplist_node<K,V,MAXLEVEL>* update[MAXLEVEL];
         NodeType* currNode = m_pHeader;
         for(int level=max_curr_level; level >=1; level--) {
@@ -177,7 +130,6 @@ public:
                 max_curr_level--;
             }
         }
-	*/
     }
  
     //const NodeType* find(K searchKey)
@@ -185,20 +137,18 @@ public:
     {
         NodeType* currNode = m_pHeader;
         for(int level=max_curr_level; level >=1; level--) {
-            while ( currNode->forwards[level]->key[0] <= searchKey ) {
+            while ( currNode->forwards[level]->key < searchKey ) {
                 currNode = currNode->forwards[level];
             }
         }
-        // currNode = currNode->forwards[1];
-	
-	for(int i=0;i<currNode->cnt;i++){
-            if ( currNode->key[i] == searchKey ) {
-                return currNode->value[i];
-            }
-	}
-
-        //return NULL;
-        return -1;
+        currNode = currNode->forwards[1];
+        if ( currNode->key == searchKey ) {
+            return currNode->value;
+        }
+        else {
+            //return NULL;
+            return -1;
+        }
     }
  
     bool empty() const
@@ -210,13 +160,10 @@ public:
     {
 	int i=0;
         std::stringstream sstr;
-        NodeType* currNode = m_pHeader; //->forwards[1];
+        NodeType* currNode = m_pHeader->forwards[1];
         while ( currNode != m_pTail ) {
-	    sstr << "(" ;
-	    for(int i=0;i<currNode->cnt;i++){
-		sstr << currNode->key[i] << "," ;
-	    }
-	    sstr << ")";
+            //sstr << "(" << currNode->key << "," << currNode->value << ")" << endl;
+            sstr << currNode->key << " ";
             currNode = currNode->forwards[1];
 	    i++;
 	    if(i>200) break;
@@ -243,6 +190,7 @@ protected:
     K m_minKey;
     K m_maxKey;
     int max_curr_level;
+    mutex list_lock;
     skiplist_node<K,V,MAXLEVEL>* m_pHeader;
     skiplist_node<K,V,MAXLEVEL>* m_pTail;
 };

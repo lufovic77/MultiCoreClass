@@ -17,8 +17,8 @@
 #include <vector>
 #include <cstring>
 
- #include "skiplist.h"
-//#include "skiplist.h"
+// #include "skiplist2.h"
+#include "skiplist.h"
 
 using namespace std;
 pthread_mutex_t queue_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -61,7 +61,7 @@ void* workerThread(void* index){
     pthread_mutex_unlock(&main_mutex);
     while(1){
         pthread_mutex_lock(&thread_mutex);
-        while(task_queue.empty() && !stopping && !finished){
+        while(task_queue.empty()  ){
             pthread_cond_wait(&thread_cond, &thread_mutex);
         }
         working |= (1UL << idx) ;    
@@ -85,7 +85,7 @@ void* workerThread(void* index){
                 tmp_q.pop();
                 char action = task.first;
                 int num = task.second;
-    //            cout<<action<<num<<endl;
+                fprintf(stderr, "%c, %d\n", action, num);
                 if (action == 'i') {            // insert
                     list.insert(num,num);
                 }
@@ -104,7 +104,6 @@ void* workerThread(void* index){
         }
 
           if(tmp){//print  
-
             pthread_barrier_wait(&barrier);
             if(idx == 0){
 
@@ -151,7 +150,7 @@ int main(int argc, char* argv[])
     for (int i = 0; i < num_threads; i++){
         int *idx =  (int*)malloc(sizeof(int)*4);
         *idx = i;
-            if ( pthread_create(&tid[i], &attr, workerThread, (void*)(idx)) < 0){
+            if ( pthread_create(&tid[i], NULL, workerThread, (void*)(idx)) < 0){
                 perror("thread Create error : ");
                 exit(0);
             }
@@ -221,14 +220,14 @@ int main(int argc, char* argv[])
         pthread_cond_signal(&thread_cond);
         pthread_mutex_unlock(&thread_mutex);
     }
+    fprintf(stderr, "?");
     while(!task_queue.empty()){
-        usleep(20);
     }
-
+    fprintf(stderr, "?");
     finished = true;
     pthread_cond_broadcast(&thread_cond);
-     for(int i=0;i<num_threads;i++)
-         pthread_join(tid[i], NULL);
+    for(int i=0;i<num_threads;i++)
+        pthread_join(tid[i], NULL);
     fclose(fin);
     clock_gettime(CLOCK_REALTIME, &stop);
     double elapsed_time = (stop.tv_sec - start.tv_sec) + ((double) (stop.tv_nsec - start.tv_nsec))/BILLION ;
