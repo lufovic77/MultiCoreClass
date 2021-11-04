@@ -7,6 +7,11 @@
 
 using namespace std;
 
+struct padded_int{
+    int value;
+    char padding[60];
+} histogram[59];
+
 int main(int argc, char* argv[])
 {
     char tmpStr[30];
@@ -53,30 +58,15 @@ std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
     // |B| | | | 
     // 이런식으로 저장되어 있음. 
     inputfile.close();
-/*
-    for(i=1; i<N; i++)
-    {
-        for(j=1; j<N; j++)
-        {
-            if(strncmp(strArr[j-1], strArr[j],30)>0)
-            {
-                strncpy(tmpStr, strArr[j-1], 30);
-                strncpy(strArr[j-1], strArr[j], 30);
-                strncpy(strArr[j], tmpStr, 30);
-            }
-        }
-    } // bubble sort
-*/
-    //string outputArr[N];
-    auto outputArr = new char [N][30];
-
-    //#pragma omp parallel num_threads(4) shared(outputArr, strArr)
+    auto outputArr = new char[N][30];
+    
     for (int decimal = 29; decimal>=0; decimal--){
-        int histogram[59] = {0};
+        for(i=0;i<59;i++)
+            histogram[i].value = 0;
         int len, idx;
         #pragma omp parallel num_threads(10)
         {
-            #pragma omp for private(idx, len, i) firstprivate(decimal, N)
+            #pragma omp for private(idx, len, i) 
             for (i = 0; i < N; i++){
                 //int len = strArr[i].length();
                 len = strlen(strArr[i]);
@@ -84,17 +74,17 @@ std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
                     idx = strArr[i][decimal]-'A'+1;
                 else
                     idx = 0;
-                #pragma omp critical
-                histogram[idx]++;
+                #pragma omp atomic
+                histogram[idx].value++;
             }
             #pragma omp single
             {
                 for (i = 1; i < 59; i++)
-                   histogram[i] += histogram[i - 1];
+                   histogram[i].value += histogram[i-1].value;
             }
             // Build the output array
 
-            #pragma omp for ordered private(idx, len, i) firstprivate(decimal, N)
+            #pragma omp for ordered private(idx, len, i) 
             for (i = N - 1; i >= 0; i--) {
                 //int len = strArr[i].length();
                 len = strlen(strArr[i]);
@@ -104,12 +94,12 @@ std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
                     idx = 0;            
                 #pragma omp ordered 
                 {
-                    strncpy(outputArr[(histogram[idx])-1], strArr[i], 30);
-                    histogram[idx]--;
+                    strncpy(outputArr[(histogram[idx].value)-1], strArr[i], 30);
+                    histogram[idx].value--;
                 }
             
             }
-            #pragma omp for private(i) firstprivate(N)
+            #pragma omp for private(i) 
                 for (i = 0; i < N; i++)
                     strncpy(strArr[i],outputArr[i],  30);
         }
