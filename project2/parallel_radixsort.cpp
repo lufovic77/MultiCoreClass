@@ -70,66 +70,49 @@ std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
     //string outputArr[N];
     auto outputArr = new char [N][30];
 
-    #pragma omp parallel num_threads(4)
+    //#pragma omp parallel num_threads(4) shared(outputArr, strArr)
     for (int decimal = 29; decimal>=0; decimal--){
         int histogram[59] = {0};
         int len, idx;
-        #pragma omp parallel for private(idx, len, i) shared(decimal, histogram) 
-        for (i = 0; i < N; i++){
-            //int len = strArr[i].length();
-            len = strlen(strArr[i]);
-            if(decimal < len)
-                idx = strArr[i][decimal]-'A'+1;
-            else
-                idx = 0;
+        #pragma omp parallel num_threads(10)
+        {
+            #pragma omp for private(idx, len, i) firstprivate(decimal, N)
+            for (i = 0; i < N; i++){
+                //int len = strArr[i].length();
+                len = strlen(strArr[i]);
+                if(decimal < len)
+                    idx = strArr[i][decimal]-'A'+1;
+                else
+                    idx = 0;
+                #pragma omp critical
+                histogram[idx]++;
+            }
+            #pragma omp single
+            {
+                for (i = 1; i < 59; i++)
+                   histogram[i] += histogram[i - 1];
+            }
+            // Build the output array
+
+            #pragma omp for ordered private(idx, len, i) firstprivate(decimal, N)
+            for (i = N - 1; i >= 0; i--) {
+                //int len = strArr[i].length();
+                len = strlen(strArr[i]);
+                if(decimal < len) 
+                    idx = strArr[i][decimal]-'A'+1;
+                else
+                    idx = 0;            
+                #pragma omp ordered 
+                {
+                    strncpy(outputArr[(histogram[idx])-1], strArr[i], 30);
+                    histogram[idx]--;
+                }
             
-            histogram[idx]++;
+            }
+            #pragma omp for private(i) firstprivate(N)
+                for (i = 0; i < N; i++)
+                    strncpy(strArr[i],outputArr[i],  30);
         }
-
-        #pragma omp critical
-        if(decimal == 29){
-        for(i=0;i<50;i++)
-        cout<<histogram[i];
-        cout<<endl;
-        }
-
-        #pragma omp critical
-        for (i = 1; i < 59; i++)
-            histogram[i] += histogram[i - 1];
-    
-        // Build the output array
-
-        //#pragma omp parallel for private(idx, len, i) shared(decimal, histogram, outputArr)
-
-        #pragma omp critical
-        for (i = N - 1; i >= 0; i--) {
-            //int len = strArr[i].length();
-            len = strlen(strArr[i]);
-            if(decimal < len) 
-                idx = strArr[i][decimal]-'A'+1;
-            else
-                idx = 0;
-            //outputArr[histogram[idx]-1] = strArr[i];
-
-            // 여기서 dependency가 생기는게 문제다 지금 !!!!!!!!!
-            strncpy(outputArr[histogram[idx]-1], strArr[i], 30);
-            histogram[idx]--;
-        
-        }
-        //Jd 
-        //Y 
-        //Q 
-        //BXWXGjX 
-        //`eHUd[mb 
-        //U 
-        //kAvHxTSid 
-        //N 
-        //b
-
-        #pragma omp critical
-        for (i = 0; i < N; i++)
-            strncpy(strArr[i],outputArr[i],  30);
-            //strArr[i] = outputArr[i];
     }
     
 
@@ -144,6 +127,6 @@ std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
 
     //delete[] strArr;
-    std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[µs]" << std::endl;
+    std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count()/(float(1000.0)) << "[s]" << std::endl;
     return 0;
 }
