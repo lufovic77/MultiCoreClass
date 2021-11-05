@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <string>
 #include <chrono>
+#include <omp.h>
+
 
 using namespace std;
 
@@ -48,7 +50,6 @@ int main(int argc, char* argv[])
 
 std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
-
     auto strArr = new char[N][30];
     //string strArr[N];
 
@@ -60,13 +61,17 @@ std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
     inputfile.close();
     auto outputArr = new char[N][30];
     
-    for (int decimal = 29; decimal>=0; decimal--){
-        for(i=0;i<59;i++)
-            histogram[i].value = 0;
-        int len, idx;
-        #pragma omp parallel num_threads(10)
-        {
-            #pragma omp for private(idx, len, i) 
+    #pragma omp parallel private(i)
+    {
+        int num = omp_get_num_threads();
+        for (int decimal = 29; decimal>=0; decimal--){
+            #pragma omp for 
+            for(i=0;i<59;i++)
+                histogram[i].value = 0;
+
+            int len, idx;
+            
+            #pragma omp for private(idx, len) schedule (static, N/num) 
             for (i = 0; i < N; i++){
                 //int len = strArr[i].length();
                 len = strlen(strArr[i]);
@@ -80,11 +85,11 @@ std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
             #pragma omp single
             {
                 for (i = 1; i < 59; i++)
-                   histogram[i].value += histogram[i-1].value;
+                histogram[i].value += histogram[i-1].value;
             }
             // Build the output array
 
-            #pragma omp for ordered private(idx, len, i) 
+            #pragma omp for ordered private(idx, len) schedule (static, N/num) 
             for (i = N - 1; i >= 0; i--) {
                 //int len = strArr[i].length();
                 len = strlen(strArr[i]);
@@ -99,9 +104,11 @@ std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
                 }
             
             }
-            #pragma omp for private(i) 
+            #pragma omp for private(i) schedule (static, N/num) 
                 for (i = 0; i < N; i++)
                     strncpy(strArr[i],outputArr[i],  30);
+
+            #pragma omp barrier
         }
     }
     
