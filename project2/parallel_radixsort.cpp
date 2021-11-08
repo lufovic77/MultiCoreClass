@@ -3,9 +3,9 @@
 #include<string.h>
 #include <algorithm>
 #include <string>
-#include <chrono>
 #include <omp.h>
 
+#define BILLION  1000000000L
 
 using namespace std;
 
@@ -14,10 +14,17 @@ struct padded_int{
     char padding[60];
 } histogram[59];
 
+struct padded_char{
+    char str[30];
+    char padded[34];
+};
+
 int main(int argc, char* argv[])
 {
     char tmpStr[30];
     int i, j, N, pos, range, ret;
+
+	struct timespec start,stop;
 
     if(argc<5){
 	    cout << "Usage: " << argv[0] << " filename number_of_strings pos range" << endl;
@@ -48,82 +55,96 @@ int main(int argc, char* argv[])
 	    return 0;
     }
 
-std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+	clock_gettime(CLOCK_REALTIME, &start);
 
-    auto strArr = new char[N][30];
+    //auto strArr = new char[N][30];
+    auto strArr = new struct padded_char[N]; 
     //string strArr[N];
 
     for(i=0; i<N; i++)
-        inputfile>>strArr[i];
+        inputfile>>strArr[i].str;
     // |A|D|I|j|d
     // |B| | | | 
     // 이런식으로 저장되어 있음. 
     inputfile.close();
-    auto outputArr = new char[N][30];
+
+	clock_gettime(CLOCK_REALTIME, &start);
+    auto outputArr = new struct padded_char[N];
     
-    #pragma omp parallel private(i)
-    {
-        int num = omp_get_num_threads();
-        for (int decimal = 29; decimal>=0; decimal--){
-            #pragma omp for 
+    //omp_set_nested(true);
+
+    int len, idx; 
+    for (int decimal = 29; decimal>=0; decimal--){
+        #pragma omp parallel private(i) shared(histogram, strArr, outputArr, decimal) 
+        {
+            #pragma omp for private(i) schedule(static)
             for(i=0;i<59;i++)
                 histogram[i].value = 0;
+  
+        }
 
-            int len, idx;
-            
-            #pragma omp for private(idx, len) schedule (static, N/num) 
+        #pragma omp parallel private(i) shared(histogram, strArr, outputArr, decimal) 
+        {
+
+            int h_private[59] = {0};
+
+            #pragma omp for private(idx, len, i) schedule(static) 
             for (i = 0; i < N; i++){
                 //int len = strArr[i].length();
-                len = strlen(strArr[i]);
+                len = strlen(strArr[i].str);
                 if(decimal < len)
-                    idx = strArr[i][decimal]-'A'+1;
+                    idx = strArr[i].str[decimal]-'A'+1;
                 else
                     idx = 0;
-                #pragma omp atomic
-                histogram[idx].value++;
+                h_private[idx] ++;
+                //#pragma omp atomic
+                //histogram[idx].value+=1;
             }
-            #pragma omp single
-            {
+            
+            #pragma omp critical
+            for(int n=0; n<59; ++n) {
+                histogram[n].value += h_private[n];
+            }
+            
+        }
+
+      //      #pragma omp single
+      //      {
                 for (i = 1; i < 59; i++)
                 histogram[i].value += histogram[i-1].value;
-            }
-            // Build the output array
-
-            #pragma omp for ordered private(idx, len) schedule (static, N/num) 
-            for (i = N - 1; i >= 0; i--) {
+                for (i = N - 1; i >= 0; i--) {
                 //int len = strArr[i].length();
-                len = strlen(strArr[i]);
-                if(decimal < len) 
-                    idx = strArr[i][decimal]-'A'+1;
-                else
-                    idx = 0;            
-                #pragma omp ordered 
-                {
-                    strncpy(outputArr[(histogram[idx].value)-1], strArr[i], 30);
+                    len = strlen(strArr[i].str);
+                    if(decimal < len) 
+                        idx = strArr[i].str[decimal]-'A'+1;
+                    else
+                        idx = 0;          
+                    strncpy(outputArr[(histogram[idx].value)-1].str, strArr[i].str, 30);
                     histogram[idx].value--;
                 }
-            
-            }
-            #pragma omp for private(i) schedule (static, N/num) 
-                for (i = 0; i < N; i++)
-                    strncpy(strArr[i],outputArr[i],  30);
+          //  }
 
-            #pragma omp barrier
+        #pragma omp parallel private(i) shared(histogram, strArr, outputArr, decimal) 
+        {
+            #pragma omp for private(i) schedule(static)
+            for (i = 0; i < N; i++)
+                strncpy(strArr[i].str,outputArr[i].str,  30);
+
+            //#pragma omp barrier
         }
     }
     
 
     cout<<"\nStrings (Names) in Alphabetical order from position " << pos << ": " << endl;
     for(i=pos; i<N && i<(pos+range); i++)
-        cout<< i << ": " << strArr[i]<<endl;
+        cout<< i << ": " << strArr[i].str<<endl;
     cout<<endl;
 
+	clock_gettime(CLOCK_REALTIME, &stop);
 
 
-    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-
-
-    //delete[] strArr;
-    std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count()/(float(1000.0)) << "[s]" << std::endl;
+    delete[] strArr;
+    delete[] outputArr;
+    std::cout << "Elapsed time: " << (stop.tv_sec - start.tv_sec) + ((double) (stop.tv_nsec - start.tv_nsec))/BILLION << " sec" << "\n";
     return 0;
 }
