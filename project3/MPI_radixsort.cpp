@@ -48,80 +48,46 @@ int main(int argc, char* argv[])
 
     int comm_size;
     int my_rank;
-
+    
     MPI_Init(NULL, NULL);
     MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
 
-    auto inputArr = new char[N][30];
-    char * strArr;
+    auto strArr = new char[N][30];
+    //char * strArr;
     if(my_rank == 0){
         for(i=0; i<N; i++){
-            inputfile>>inputArr[i];
-        }
-
-        if (( strArr = (char*)malloc(N*30*sizeof(char))) == NULL) {
-            printf("Malloc error");
-            exit(1);
-        }
-
-        for (i=0; i<N; i++) {
-            for(int j=0;j<30;j++)
-                strArr[i*30 + j] = inputArr[i][j];
-        }
-
-        for(i=0;i<N*30;i++)
-        printf("|%c|", strArr[i]);
+            inputfile>>strArr[i];
+        }   
     }
 
-    inputfile.close();
+    inputfile.close(); 
 
 std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
     auto outputArr = new char [N][30];
     int len, idx;
     int histogram[59] = {0};
-    int buffer[59] = {0};
 
     char* str_buffer;
     if (( str_buffer = (char*)malloc((N/comm_size)*30*sizeof(char))) == NULL) {
         printf("Malloc error");
         exit(1);
     }
+    auto str_private = new char[N/comm_size][30];
     
     for (int decimal = 29; decimal>=0; decimal--){
-        cout<<decimal<<endl;
         for( i=0;i< 59;i++)
             histogram[i] = 0;
 
+        // worker
         int h_private[59] = {0};
-        //for(int q = 1;q<comm_size;q++){
-            //offset 계산해서 쪼개야한다 - 4개의 노드를 기준으로 하자 
-            /*int start = (N/comm_size) * q;
-            int end = (N/comm_size) * (q+1);
-            idx = 0;
-            for(int s = start;s<end;s++){
-                cout<<strArr[s]<<endl;
-                strncpy(str_buffer[idx++], strArr[s], 30);
-            }*/
-            //MPI_Send(str_buffer, 30, MPI_CHAR, q, 0, MPI_COMM_WORLD);
-        MPI_Scatter(strArr, 30*(N/comm_size), MPI_CHAR, // send one row, which contains p integers
-        str_buffer, 30*(N/comm_size), MPI_CHAR, // receive one row, which contains p integers
-        0, MPI_COMM_WORLD);
+        if(my_rank != 0){
+            MPI_Recv(str_buffer, 30*(N/comm_size), MPI_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-        cout<<str_buffer<<endl;
-        
-        //MPI_Recv(h_private, 59, MPI_INT, q, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-/*
-        for (i = 0; i < 59; i++)
-            histogram[i] += h_private[i];
-
-        if(my_rank != 0){ // worker
-            int h_private[59] = {0};
-            MPI_Recv(str_private, 30, MPI_CHAR, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            cout<<"rank "<<my_rank<<endl;
             for(int i=0;i<N/comm_size;i++){
-                cout<<str_private[i]<<endl;
+                idx = 0;
+                strncpy(str_private[i], str_buffer + 30*i, 30);
                 len = strlen(str_private[i]);
                 if(decimal < len)
                     idx = str_private[i][decimal]-'A'+1;
@@ -131,21 +97,46 @@ std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
             }
             MPI_Send(h_private, 59, MPI_INT, 0, 0, MPI_COMM_WORLD);
         }
-
-        if(my_rank == 0){
-             
+        else{ // master
+            for(i=1;i<comm_size;i++){
+                int start = (N/comm_size) * i;
+                int end = (N/comm_size) * (i+1);
+                idx = 0;
+                
+                for (int q=start; q<end; q++) {
+                    for(int j=0;j<30;j++)
+                        str_buffer[idx++] = strArr[q][j];
+                }
+                MPI_Send(str_buffer, 30*(N/comm_size), MPI_CHAR, i, 0, MPI_COMM_WORLD);
+                MPI_Recv(h_private, 59, MPI_INT, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                histogram[0] += h_private[0];
+                for (int q = 1; q < 59; q++){
+                    histogram[q] += h_private[q];
+                    h_private[q-1] = 0;
+                }
+                h_private[58] = 0;
+            }
+            idx = 0;
+            for (int q=0; q<N/comm_size; q++) {
+                    for(int j=0;j<30;j++)
+                        str_buffer[idx++] = strArr[q][j];
+            }
             for(int i=0;i<N/comm_size;i++){
-                len = strlen(strArr[i]);
+                idx = 0;
+                strncpy(str_private[i], str_buffer + 30*i, 30);
+                len = strlen(str_private[i]);
                 if(decimal < len)
-                    idx = strArr[i][decimal]-'A'+1;
+                    idx = str_private[i][decimal]-'A'+1;
                 else
                     idx = 0;
-                histogram[idx]++;
+                h_private[idx]++;
             }
+            for (int q = 0; q < 59; q++)
+                histogram[q] += h_private[q];
 
-            for (i = 0; i < 59; i++)
-            cout<<histogram[i];
-            cout<<endl;
+        }
+
+        if(my_rank == 0){
             for (i = 1; i < 59; i++)
             histogram[i] += histogram[i-1];
 
@@ -165,27 +156,24 @@ std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
                 for (i = 0; i < N; i++)
                     strncpy(strArr[i],outputArr[i],  30);
             }
-            cout<<decimal<<endl;
         }
-        */
     }
 
     if(my_rank == 0){
-        /*
+        
         cout<<"\nStrings (Names) in Alphabetical order from position " << pos << ": " << endl;
         for(i=pos; i<N && i<(pos+range); i++)
             cout<< i << ": " << strArr[i]<<endl;
         
-        
-        delete[] outputArr;
-        delete[] strArr;
-*/
+
         std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
         //delete[] strArr;
         std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count()/(float(1000.0)) << "[s]" << std::endl;
 
-        MPI_Finalize();
     }
+    delete[] outputArr;
+    delete[] strArr;
     
+    MPI_Finalize();
     return 0;
 }
