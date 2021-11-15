@@ -5,7 +5,6 @@
 #include <string>
 #include <omp.h>
 #include <mpi.h>
-#include <chrono>
 
 #define BILLION  1000000000L
 
@@ -72,17 +71,11 @@ int main(int argc, char* argv[])
 
     inputfile.close(); 
 
-std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-
     auto outputArr = new struct padded_char[N];
     int len, idx;
     auto histogram = new struct padded_int[59];
 
-    char* str_buffer;
-    if (( str_buffer = (char*)malloc((N/comm_size)*31*sizeof(char))) == NULL) {
-        printf("Malloc error");
-        exit(1);
-    }
+    auto str_buffer = new char [N/comm_size*31];
     auto str_private = new char[N/comm_size][31];
     
     for (int decimal = 29; decimal>=0; decimal--){
@@ -123,10 +116,8 @@ std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
                 int end = (N/comm_size) * (i+1);
                 idx = 0;
                 
-                for (int q=start; q<end; q++) {
-                    for(int j=0;j<31;j++)
-                        str_buffer[idx++] = strArr[q].str[j];
-                }
+                for (int q=start; q<end; q++) 
+                    strncpy(str_buffer+(idx++)*31, strArr[q].str, 31);
                 MPI_Send(str_buffer, 31*(N/comm_size), MPI_CHAR, i, 0, MPI_COMM_WORLD);
                 MPI_Recv(h_private, 59, MPI_INT, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                 histogram[0].value += h_private[0];
@@ -137,18 +128,19 @@ std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
                 h_private[58] = 0;
             }
             #pragma omp parallel
-            {   auto h_private_tmp = new struct padded_int[59];
+            {   
+                auto h_private_tmp = new struct padded_int[59];
                 for( i=0;i< 59;i++)
                     h_private_tmp[i].value = 0;
-                #pragma omp  for schedule(static) collapse(2)
-                for (int q=0; q<N/comm_size; q++) {
-                        for(int j=0;j<31;j++)
-                            str_buffer[q*31 + j] = strArr[q].str[j];
-                }
+
+                #pragma omp for schedule(static)
+                for (int q=0; q<N/comm_size; q++) 
+                    strncpy(str_buffer+q*31,  strArr[q].str, 31);
+
                 #pragma omp for private(idx, len) schedule(static) 
                 for(i=0;i<N/comm_size;i++){
                     idx = 0;
-                    strncpy(str_private[i], str_buffer + 31*i, 31);
+                    strncpy(str_private[i],str_buffer + 31*i, 31);
                     len = strlen(str_private[i]);
                     if(decimal < len)
                         idx = str_private[i][decimal]-'A'+1;
@@ -195,11 +187,6 @@ std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
         for(i=pos; i<N && i<(pos+range); i++){
             cout<< i << ": " << strArr[i].str<<endl;
         }
-        
-        std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-        //delete[] strArr;
-        std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count()/(float(1000.0)) << "[s]" << std::endl;
-
     }
     delete[] outputArr;
     delete[] strArr;

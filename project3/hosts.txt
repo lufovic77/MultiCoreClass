@@ -1,2 +1,2 @@
-swye.skku.edu
+swin.skku.edu
 swui.skku.edu
