@@ -2,19 +2,19 @@
 #include <stdio.h>
 #include <cuda_runtime.h>
 
-#define N 1000000
+#define N 100000000
 #define MAX_VAL 1000000
 
 extern void counting_sort(int arr[], int, int);
 
 int main()
 {
-  int array[N];
+  //int array[N];
+  int * array = new int[N];
 
   for(int i=0;i<N;i++){
       array[i] = rand()%MAX_VAL;
   }
-
   counting_sort(array, N, MAX_VAL);
 
   for(int i=0;i<N-1;i++){
