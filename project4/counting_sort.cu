@@ -1,10 +1,4 @@
 #include <cuda.h>
-// 나중에 지우기
-#include <iostream>
-#include <vector>
-#include <algorithm>
-#include <cstdio>
-using namespace std;
 
 __global__ void countingSortKernel(int * histogram_d , int * array_d, int max_val_h, int size, int num_blocks, int num_threads){
    int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -24,7 +18,7 @@ __global__ void countingSortKernel(int * histogram_d , int * array_d, int max_va
 __host__ void counting_sort(int arr[], int size, int max_val)
 {
    //int i, j;
-   int num_blocks = 3, num_threads = 10;
+   int num_blocks = 100, num_threads = 1000;
    // fill in 
    int arrSize = size*sizeof(int), histoSize = max_val*sizeof(int);
    int * histogram_d;

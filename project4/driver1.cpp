@@ -2,8 +2,8 @@
 #include <stdio.h>
 #include <cuda_runtime.h>
 
-#define N 100000000
-#define MAX_VAL 1000000
+#define N 1023022
+#define MAX_VAL 102003234
 
 extern void counting_sort(int arr[], int, int);
 
